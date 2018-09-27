@@ -1,60 +1,61 @@
 import multiprocessing
-from random import randint
 import time
+from abc import abstractmethod
 
-global gap, pos, bp, div
-global q, L, R
-class mycls(object):
-    def __init__(self, pos):
-        self.value = randint(2, 7)
-        self.vis = False
+global L, R, q, process_num, gap
+class Target(object):
+    def __init__(self, pos, vis=False):
         self.pos = pos
-        self.result = 0 if self.pos < bp else 1
-    def run(self):
-        time.sleep(self.value)
+        self.vis = vis
+
     def visit(self):
         if not self.vis:
             self.vis = True
             return False
         else:
             return True
-    def callback(self, quit_code):
-        print "mycls " + str(self.pos) + " quit with " + str(quit_code)
-        if self.pos >= L.value and self.pos <= R.value:
-            if self.result == 0:
-                # fail
-                L.value = self.pos + 1
-            else:
-                R.value = self.pos
-            gap = (R.value - L.value) / div
-        print "current bound L: " + str(L.value) + " R: " + str(R.value)
-        q.get()
+
+    @abstractmethod
+    def run(self, *args, **kwargs):
+        pass
+    @abstractmethod
+    def judge(self, quit_code):
+        pass
+
+    def run_and_judge(self):
+        return_code = self.run()
+        return (self.pos, self.judge(return_code))
+
 
 def run_tc(obj):
-    obj.run()
-    return 11
+    return obj.run_and_judge()
 
-if __name__ == '__main__':
-    div = int(input("input parallel process number: "))
-    llen = int(input("input the length of list: "))
-    bp = int(input("input the breakpoint: "))
+def callback(args):
+    pos = args[0]
+    is_pass = args[1]
+    print "list " + str(pos) + " quit with " + str(is_pass)
+    if pos >= L.value and pos <= R.value:
+        if is_pass == True:
+            # pass
+            L.value = pos + 1
+        else:
+            R.value = pos
+        gap = (R.value - L.value) / process_num
+    print "current bound L: " + str(L.value) + " R: " + str(R.value)
+    q.get()
 
-    if div > llen:
-        div = llen
+def narrow_down(process_num, obj_list):
 
-    mycls_list = []
-    for i in range(llen):
-        mycls_list.append(mycls(i))
+    if process_num > len(obj_list):
+        process_num = len(obj_list)
 
-    run_cnt = 0
     pos = 0
 
-    pool = multiprocessing.Pool(div)
-    q = multiprocessing.Manager().Queue(div)
+    pool = multiprocessing.Pool(process_num)
+    q = multiprocessing.Manager().Queue(process_num)
     L = multiprocessing.Manager().Value('i', 0)
-    R = multiprocessing.Manager().Value('i', (len(mycls_list)))
-    gap = (R.value - L.value) / div
-    # while L.value < R.value and run_cnt < len(mycls_list):
+    R = multiprocessing.Manager().Value('i', len(obj_list))
+    gap = (R.value - L.value) / process_num
     while L.value < R.value:
         while q.full():
             print "sleep for 1 sec"
@@ -65,12 +66,13 @@ if __name__ == '__main__':
                 pos = L.value
             find = False
             while pos < R.value:
-                if not mycls_list[pos].visit():
+                if not obj_list[pos].visit():
                     find = True
                     q.put(pos)
                     print"put " + str(pos)
                     pool.apply_async(run_tc,
-                                     args=(mycls_list[pos], ), callback=mycls_list[pos].callback)
+                                     args=(obj_list[pos], ), 
+                                     callback=callback)
                     pos = pos + gap
                     break
                 else:
@@ -78,12 +80,13 @@ if __name__ == '__main__':
             if not find:
                 # choose in order
                 for i in list(range(L.value, R.value)):
-                    if not mycls_list[i].visit():
+                    if not obj_list[i].visit():
                         find = True
                         q.put(i)
                         print"put " + str(i)
                         pool.apply_async(run_tc, 
-                                         args=(mycls_list[i], ), callback=mycls_list[i].callback)
+                                         args=(obj_list[i], ),
+                                         callback=callback)
                         break
             if not find: # still not find, which means no rest to be added
                 print "all take up"
@@ -98,3 +101,4 @@ if __name__ == '__main__':
     pool.join()
     print "-terminate "
     print "L: " + str(L.value) + " R: " + str(R.value)
+
